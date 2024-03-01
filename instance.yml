@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  InstanceTypeParameter:
+    Type: String
+    Default: t2.micro
+    Description: Enter instance size. Default is t2.micro.
+  WorkstationIp:
+    Type: String
+    Description: The IP address of the workstation that can RDP into the instance.
+  AMI:
+    Type: String
+    Default: ami-04708942c263d8190
+    Description: The Windows AMI to use.
+  Key:
+    Type: String
+    Default: testkey
+    Description: The key used to access the instance.
+Resources:
+  TVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 16.0.0.0/20
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: nisha
+  TInternetGateway:
+    Type: AWS::EC2::InternetGateway
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref TVPC
+      InternetGatewayId: !Ref TInternetGateway
+  TSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-south-1a
+      VpcId: !Ref TVPC
+      CidrBlock: 16.0.0.0/26
+      MapPublicIpOnLaunch: true
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TVPC
+  TInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: TInternetGateway
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref TInternetGateway
+      RouteTableId: !Ref RouteTable
+  SubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref TSubnetA
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "security group"
+      GroupDescription: "Tentacle traffic in from hosted static ips, and RDP in from a personal workstation"
+      VpcId: !Ref TVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp:  0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp:  0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp:  0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: '22'       
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp:  0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp:  0.0.0.0/0
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: TVPC
+      InstanceId: !Ref TInstance
+  TInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !Ref AMI
+      InstanceType:
+        Ref: InstanceTypeParameter
+      KeyName: !Ref Key
+      SubnetId: !Ref TSubnetA
+      SecurityGroupIds:
+        - Ref: InstanceSecurityGroup
+      Tags:
+        - Key: Name
+          Value: "nisha instance"
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 15
+      UserData:
+          Fn::Base64: !Sub |
+           #!/bin/bash
+           sudo yum install httpd -y
+           sudo systemctl restart httpd
+           echo "This is my httpd server" > /var/www/html/index.html
+           sudo systemctl enable httpd
